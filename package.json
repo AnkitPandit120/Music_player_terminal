@@ -1,0 +1,7 @@
+{
+  "name": "music-player-terminal",
+  "type": "module",
+  "dependencies": {
+    "audio": "^2.6.9"
+  }
+}
