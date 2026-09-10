@@ -5,7 +5,11 @@ if (!file) {
   console.log('Usage: node player.js <path-to-audio-file>');
   process.exit(1);
 }
+const track = await audio(file);
 
-const track = audio(file);
 track.play();
-console.log(`▶ Playing: ${file}`);
+console.log(`>> Playing: ${file}`);
+
+track.on('ended', () => {
+  process.exit(0);
+});
