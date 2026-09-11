@@ -12,7 +12,7 @@ const track = await audio(file);
 
 track.play();
 console.log(`Playing: ${file}`);
-console.log("Press 'q' to quit");
+console.log('Controls: [Space] Play/Pause | [q] Quit');
 
 // Enable keypress events on stdin
 readline.emitKeypressEvents(process.stdin);
@@ -22,8 +22,20 @@ if (process.stdin.isTTY) {
 
 // Listen for keys
 process.stdin.on('keypress', (str, key) => {
+  // Quit on 'q' or Ctrl+C
   if (str === 'q' || (key && key.ctrl && key.name === 'c')) {
     process.exit(0);
+  }
+
+  // Toggle play/pause on Space
+  if (str === ' ' || (key && key.name === 'space')) {
+    if (track.paused) {
+      track.resume();
+      console.log('▶ Resumed');
+    } else {
+      track.pause();
+      console.log('⏸ Paused');
+    }
   }
 });
 
