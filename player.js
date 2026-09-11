@@ -3,7 +3,7 @@ import readline from 'node:readline';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Get audio files from command line arguments or scan current folder
+// Get audio files from command line arguments or scan current directory
 const supportedExts = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'];
 let files = process.argv.slice(2);
 
@@ -18,12 +18,10 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-let currentIndex = 0;
+let currentIndex = 0;   // Track currently playing
+let selectedIndex = 0;  // Track highlighted in playlist with arrow keys
 let track = null;
 let isChanging = false;
-
-console.log(`Loaded ${files.length} track(s)`);
-console.log('Controls: [Space] Play/Pause | [→] Next | [←] Prev | [q] Quit\n');
 
 // Format seconds into MM:SS
 function formatTime(seconds) {
@@ -32,28 +30,57 @@ function formatTime(seconds) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-// Render status, current track, progress bar, and duration on one line
-function renderProgress() {
-  if (!track || isChanging) return;
+// Render playlist, selected item, and progress bar
+function renderUI() {
+  const lines = [];
 
-  const current = track.currentTime || 0;
-  const total = track.duration || 1;
-  const progress = Math.min(1, Math.max(0, current / total));
+  lines.push('🎵 Terminal Audio Player');
+  lines.push('Controls: [↑/↓] Select | [Enter] Play | [Space] Pause/Resume | [←/→] Prev/Next | [q] Quit');
+  lines.push('─'.repeat(70));
+  lines.push('Playlist:');
 
-  const barLength = 20;
-  const filled = Math.round(barLength * progress);
-  const empty = barLength - filled;
-  const bar = '█'.repeat(filled) + '░'.repeat(empty);
+  // Display track list
+  for (let i = 0; i < files.length; i++) {
+    const isSelected = i === selectedIndex;
+    const isCurrent = i === currentIndex;
 
-  const status = track.paused ? '⏸ PAUSED ' : '▶ PLAYING';
-  const time = `${formatTime(current)} / ${formatTime(total)}`;
-  const trackInfo = `[${currentIndex + 1}/${files.length}] ${path.basename(files[currentIndex])}`;
+    const pointer = isSelected ? '❯ ' : '  ';
+    let statusIcon = '   ';
+    if (isCurrent && track) {
+      statusIcon = track.paused ? '[⏸]' : '[▶]';
+    }
 
-  // \r returns cursor to start of line, \x1b[K clears trailing text
-  process.stdout.write(`\r\x1b[K${trackInfo} | ${status} [${bar}] ${time}`);
+    const trackName = path.basename(files[i]);
+    lines.push(`${pointer}${i + 1}. ${statusIcon} ${trackName}`);
+  }
+
+  lines.push('─'.repeat(70));
+
+  // Display live playback bar
+  if (track && !isChanging) {
+    const current = track.currentTime || 0;
+    const total = track.duration || 1;
+    const progress = Math.min(1, Math.max(0, current / total));
+
+    const barLength = 22;
+    const filled = Math.round(barLength * progress);
+    const empty = barLength - filled;
+    const bar = '█'.repeat(filled) + '░'.repeat(empty);
+
+    const status = track.paused ? '⏸ PAUSED ' : '▶ PLAYING';
+    const time = `${formatTime(current)} / ${formatTime(total)}`;
+    lines.push(`${status} [${bar}] ${time}`);
+  } else if (isChanging) {
+    lines.push(`⏳ Loading ${path.basename(files[currentIndex])}...`);
+  } else {
+    lines.push('Press Enter to play.');
+  }
+
+  // Draw UI using \x1b[H (move cursor to home) with line clearing for zero-flicker updates
+  process.stdout.write('\x1b[H' + lines.map(line => line + '\x1b[K').join('\n') + '\n\x1b[J');
 }
 
-// Switch and play a track by index (with loop wrapping)
+// Switch and play track by index
 async function switchTrack(index) {
   if (isChanging) return;
   isChanging = true;
@@ -64,28 +91,30 @@ async function switchTrack(index) {
     }
 
     currentIndex = index;
-    process.stdout.write(`\r\x1b[KLoading [${currentIndex + 1}/${files.length}] ${path.basename(files[currentIndex])}...`);
+    selectedIndex = index; // Move selection to match current playing track
+    renderUI();
 
     track = await audio(files[currentIndex]);
     track.play();
 
-    // When the track finishes, automatically play the next track (looping)
+    // Auto-advance to next track when finished (looping back to 1)
     track.on('ended', () => {
       switchTrack((currentIndex + 1) % files.length);
     });
   } catch (err) {
-    process.stdout.write(`\r\x1b[KError playing ${files[currentIndex]}: ${err.message}\n`);
+    console.error(`Error playing ${files[currentIndex]}:`, err.message);
   } finally {
     isChanging = false;
-    renderProgress();
+    renderUI();
   }
 }
 
-// Update progress bar every 100ms
-const interval = setInterval(renderProgress, 100);
-
-// Hide cursor for clean terminal output
+// Clear screen once at startup and hide cursor
+console.clear();
 process.stdout.write('\x1b[?25l');
+
+// Refresh progress bar every 100ms
+const interval = setInterval(renderUI, 100);
 
 function cleanupAndExit() {
   clearInterval(interval);
@@ -94,20 +123,37 @@ function cleanupAndExit() {
   process.exit(0);
 }
 
-// Enable raw mode for instant keypresses
+// Enable raw mode for single keypress capture
 readline.emitKeypressEvents(process.stdin);
 if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
 }
 
-// Listen for keys
+// Handle keystrokes
 process.stdin.on('keypress', (str, key) => {
   // Quit on 'q' or Ctrl+C
   if (str === 'q' || (key && key.ctrl && key.name === 'c')) {
     cleanupAndExit();
   }
 
-  // Toggle play / pause on Space
+  // Navigate selection Up
+  if (key && key.name === 'up') {
+    selectedIndex = (selectedIndex - 1 + files.length) % files.length;
+    renderUI();
+  }
+
+  // Navigate selection Down
+  if (key && key.name === 'down') {
+    selectedIndex = (selectedIndex + 1) % files.length;
+    renderUI();
+  }
+
+  // Play selected track on Enter
+  if (key && (key.name === 'return' || key.name === 'enter')) {
+    switchTrack(selectedIndex);
+  }
+
+  // Toggle Play / Pause on Space
   if (str === ' ' || (key && key.name === 'space')) {
     if (track) {
       if (track.paused) {
@@ -115,17 +161,17 @@ process.stdin.on('keypress', (str, key) => {
       } else {
         track.pause();
       }
-      renderProgress();
+      renderUI();
     }
   }
 
-  // Next track on Right arrow (loops: 4 -> 1)
+  // Skip to next track on Right arrow
   if (key && key.name === 'right') {
     const nextIndex = (currentIndex + 1) % files.length;
     switchTrack(nextIndex);
   }
 
-  // Previous track on Left arrow (loops: 1 -> 4)
+  // Skip to previous track on Left arrow
   if (key && key.name === 'left') {
     const prevIndex = (currentIndex - 1 + files.length) % files.length;
     switchTrack(prevIndex);
