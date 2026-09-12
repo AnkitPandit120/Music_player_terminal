@@ -35,7 +35,7 @@ function renderUI() {
   const lines = [];
 
   lines.push('🎵 Terminal Audio Player');
-  lines.push('Controls: [↑/↓] Select | [Enter] Play | [Space] Pause/Resume | [←/→] Prev/Next | [q] Quit');
+  lines.push('Controls: [↑/↓] Select | [Enter] Play | [Space] Pause/Resume | [A/D] -10s/+10s | [←/→] Prev/Next | [q] Quit');
   lines.push('─'.repeat(70));
   lines.push('Playlist:');
 
@@ -132,7 +132,7 @@ if (process.stdin.isTTY) {
 // Handle keystrokes
 process.stdin.on('keypress', (str, key) => {
   // Quit on 'q' or Ctrl+C
-  if (str === 'q' || (key && key.ctrl && key.name === 'c')) {
+  if (str === 'q' || str === 'Q' || (key && key.ctrl && key.name === 'c')) {
     cleanupAndExit();
   }
 
@@ -161,6 +161,24 @@ process.stdin.on('keypress', (str, key) => {
       } else {
         track.pause();
       }
+      renderUI();
+    }
+  }
+
+  // Rewind 10 seconds on 'A' or 'a'
+  if (str === 'a' || str === 'A') {
+    if (track && !isChanging) {
+      const targetTime = Math.max(0, (track.currentTime || 0) - 10);
+      track.seek(targetTime);
+      renderUI();
+    }
+  }
+
+  // Fast-forward 10 seconds on 'D' or 'd'
+  if (str === 'd' || str === 'D') {
+    if (track && !isChanging) {
+      const targetTime = Math.min(track.duration || 0, (track.currentTime || 0) + 10);
+      track.seek(targetTime);
       renderUI();
     }
   }
