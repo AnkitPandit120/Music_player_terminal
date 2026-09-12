@@ -3,9 +3,9 @@
 A sleek, lightweight, interactive terminal-based music player built with Node.js and ES Modules. Features a flicker-free card UI with a live progress bar, playlist navigation, and full keyboard control.
 
 ```text
+  ♫  TERMINAL AUDIO PLAYER  (3 tracks)
+
 ╭────────────────────────────────────────────────────────────────────────╮
-│ ♫  TERMINAL AUDIO PLAYER  (3 tracks)                                   │
-├────────────────────────────────────────────────────────────────────────┤
 │ PLAYLIST                                                               │
 │      1. [PLAY]  sound1.mp3                                             │
 │ ❯    2.         sound2.mp3                                             │
@@ -16,7 +16,7 @@ A sleek, lightweight, interactive terminal-based music player built with Node.js
 ├────────────────────────────────────────────────────────────────────────┤
 │ CONTROLS                                                               │
 │ [↑/↓] Select   [Enter] Play   [Space] Pause/Resume   [q] Quit          │
-│ [A/D] ⏪ 10s ⏩  [←/→] Prev/Next Track                                  │
+│ [A/D] -10s/+10s   [←/→] Prev/Next Track                                │
 ╰────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -113,14 +113,27 @@ npm install
 Place any `.mp3`, `.wav`, or `.flac` files into the project folder.
 
 ### 5. Start the Player
-You can run the player with no arguments to automatically play all audio files in the folder:
+
+**Play all tracks from current directory:**
 ```bash
 node player.js
 ```
 
-Or pass specific tracks as command-line arguments:
+**Play all tracks from any folder location (scans nested folders recursively):**
 ```bash
-node player.js sound1.mp3 sound2.mp3 sound3.mp3
+# Relative folder
+node player.js ./my-music
+
+# Absolute folder path
+node player.js /Users/username/Music
+
+# User home folder path
+node player.js ~/Music
+```
+
+**Mix and match folders and files:**
+```bash
+node player.js ~/Music/Rock track1.mp3 /path/to/another/album
 ```
 
 ---

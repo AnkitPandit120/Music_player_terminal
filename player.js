@@ -2,6 +2,7 @@ import audio from 'audio';
 import readline from 'node:readline';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
 // ── Colors & Styling ────────────────────────────────────────────────────────
 const c = {
@@ -28,16 +29,77 @@ const c = {
 
 // ── Audio Files Discovery ───────────────────────────────────────────────────
 const supportedExts = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'];
-let files = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+const searchTargets = rawArgs.length > 0 ? rawArgs : [process.cwd()];
 
-if (files.length === 0) {
-  files = fs.readdirSync(process.cwd())
-    .filter(f => supportedExts.includes(path.extname(f).toLowerCase()))
-    .sort();
+function expandHome(filepath) {
+  if (filepath.startsWith('~/') || filepath === '~') {
+    return path.join(os.homedir(), filepath.slice(1));
+  }
+  return filepath;
 }
 
+// Recursively scan directories for audio files
+function scanAudioFiles(dirPath, depth = 0) {
+  const results = [];
+  if (depth > 5) return results; // Prevent infinite recursion
+
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      // Ignore hidden files/folders and node_modules
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (supportedExts.includes(ext)) {
+          results.push(fullPath);
+        }
+      } else if (entry.isDirectory()) {
+        results.push(...scanAudioFiles(fullPath, depth + 1));
+      }
+    }
+  } catch {
+    // Skip unreadable or permission-restricted folders
+  }
+  return results;
+}
+
+let files = [];
+let sourceFolder = null;
+
+for (const target of searchTargets) {
+  try {
+    const resolved = path.resolve(expandHome(target));
+    if (fs.existsSync(resolved)) {
+      const stat = fs.statSync(resolved);
+      if (stat.isDirectory()) {
+        if (!sourceFolder && rawArgs.length === 1) {
+          sourceFolder = path.basename(resolved);
+        }
+        files.push(...scanAudioFiles(resolved));
+      } else if (stat.isFile()) {
+        const ext = path.extname(resolved).toLowerCase();
+        if (supportedExts.includes(ext)) {
+          files.push(resolved);
+        }
+      }
+    } else {
+      console.warn(`${c.yellow}Warning:${c.reset} Path does not exist: ${target}`);
+    }
+  } catch {
+    // Ignore invalid paths
+  }
+}
+
+// Deduplicate and sort alphabetically
+files = [...new Set(files)].sort((a, b) =>
+  path.basename(a).localeCompare(path.basename(b), undefined, { sensitivity: 'base', numeric: true })
+);
+
 if (files.length === 0) {
-  console.error(`${c.yellow}No audio files found.${c.reset} Usage: node player.js <file1.mp3> ...`);
+  console.error(`${c.yellow}No audio files found.${c.reset} Usage: node player.js [folder|file1.mp3 ...]`);
   process.exit(1);
 }
 
@@ -73,6 +135,7 @@ function padLine(content, width) {
 // ── UI Box Renderer ─────────────────────────────────────────────────────────
 function renderUI() {
   const termWidth = process.stdout.columns || 80;
+  const termRows = process.stdout.rows || 24;
   const BOX_WIDTH = Math.min(74, Math.max(54, termWidth - 2));
   const innerWidth = BOX_WIDTH - 4; // space between left and right borders
 
@@ -85,19 +148,20 @@ function renderUI() {
   }
 
   const lines = [];
-  lines.push(borderTop);
 
-  // 1. Header
+  // 1. Header (Clean top header without an overarching blue border line)
   const title = `${c.brightCyan}${c.bold}♫  TERMINAL AUDIO PLAYER${c.reset}`;
   const trackCount = `${c.gray}(${files.length} track${files.length > 1 ? 's' : ''})${c.reset}`;
-  lines.push(row(`${title}  ${trackCount}`));
-
-  lines.push(borderMid);
+  const folderTag = sourceFolder ? ` ${c.gray}• ${c.cyan}${sourceFolder}${c.reset}` : '';
+  lines.push(`  ${title}  ${trackCount}${folderTag}`);
 
   // 2. Playlist Section (Windowed for smooth scrolling)
+  lines.push(borderTop);
   lines.push(row(`${c.bold}${c.brightWhite}PLAYLIST${c.reset}`));
 
-  const MAX_VISIBLE = 5;
+  const reservedLines = 11;
+  const maxAllowedTracks = Math.max(1, termRows - reservedLines);
+  const MAX_VISIBLE = Math.min(5, maxAllowedTracks);
   let startIdx = 0;
   if (files.length > MAX_VISIBLE) {
     startIdx = Math.max(0, Math.min(selectedIndex - Math.floor(MAX_VISIBLE / 2), files.length - MAX_VISIBLE));
@@ -165,12 +229,12 @@ function renderUI() {
   // 4. Controls Footer
   lines.push(row(`${c.gray}CONTROLS${c.reset}`));
   lines.push(row(`${c.brightCyan}[↑/↓]${c.reset} Select   ${c.brightCyan}[Enter]${c.reset} Play   ${c.brightCyan}[Space]${c.reset} Pause/Resume   ${c.brightCyan}[q]${c.reset} Quit`));
-  lines.push(row(`${c.brightCyan}[A/D]${c.reset} ⏪ 10s ⏩  ${c.brightCyan}[←/→]${c.reset} Prev/Next Track`));
+  lines.push(row(`${c.brightCyan}[A/D]${c.reset} -10s/+10s   ${c.brightCyan}[←/→]${c.reset} Prev/Next Track`));
 
   lines.push(borderBottom);
 
-  // Flicker-free render using cursor home \x1b[H and clear line \x1b[K
-  process.stdout.write('\x1b[H' + lines.map(line => line + '\x1b[K').join('\n') + '\n\x1b[J');
+  // Flicker-free render using cursor home \x1b[H and clear line \x1b[K without extra trailing newline
+  process.stdout.write('\x1b[H' + lines.map(line => line + '\x1b[K').join('\n') + '\x1b[J');
 }
 
 // ── Track Switching ─────────────────────────────────────────────────────────
@@ -203,19 +267,23 @@ async function switchTrack(index) {
 }
 
 // ── Setup Terminal Environment ──────────────────────────────────────────────
-console.clear();
-process.stdout.write('\x1b[?25l'); // Hide cursor
+// Use alternate screen buffer to isolate display and prevent scrollback leakage
+process.stdout.write('\x1b[?1049h\x1b[H\x1b[?25l');
 
 const interval = setInterval(renderUI, 100);
 
 function cleanupAndExit() {
   clearInterval(interval);
-  if (track) track.stop();
-  process.stdout.write('\x1b[?25h'); // Restore cursor
-  console.clear();
+  if (track) {
+    try { track.stop(); } catch {}
+  }
+  process.stdout.write('\x1b[?1049l\x1b[?25h'); // Restore alternate screen buffer & cursor
   console.log(`${c.brightCyan}♫ Terminal player closed. Goodbye!${c.reset}\n`);
   process.exit(0);
 }
+
+process.on('SIGINT', cleanupAndExit);
+process.on('SIGTERM', cleanupAndExit);
 
 // Enable raw mode for instant keystrokes
 readline.emitKeypressEvents(process.stdin);
